@@ -11,8 +11,17 @@
 
 package org.eclipse.mylyn.monitor.ui;
 
+import org.eclipse.core.filebuffers.FileBuffers;
+import org.eclipse.core.filebuffers.ITextFileBuffer;
+import org.eclipse.core.filebuffers.ITextFileBufferManager;
+import org.eclipse.core.filebuffers.LocationKind;
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Status;
+import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.mylyn.commons.core.StatusHandler;
 import org.eclipse.mylyn.context.core.AbstractContextStructureBridge;
@@ -27,7 +36,7 @@ import org.eclipse.ui.IWorkbenchWindow;
 
 /**
  * Self-registering on construction. Encapsulates users' interaction with the context model.
- * 
+ *
  * @author Mik Kersten
  * @author Shawn Minto
  * @since 2.0
@@ -35,6 +44,10 @@ import org.eclipse.ui.IWorkbenchWindow;
 public abstract class AbstractUserInteractionMonitor implements ISelectionListener {
 
 	protected Object lastSelectedElement = null;
+
+	private Object lastEditElement = null;
+
+	private static int lastEditorHashcode;
 
 	/**
 	 * Requires workbench to be active.
@@ -88,7 +101,8 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 	 * Intended to be called back by subclasses.
 	 */
 	protected void handleElementEdit(IWorkbenchPart part, Object selectedElement, boolean contributeToContext) {
-		handleElementEdit(part.getSite().getId(), selectedElement, contributeToContext);
+		boolean isUpdated = isElementUpdated(selectedElement);
+		handleElementEdit(part.getSite().getId(), selectedElement, contributeToContext, isUpdated);
 	}
 
 	/**
@@ -100,7 +114,7 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 
 	/**
 	 * Intended to be called back by subclasses. *
-	 * 
+	 *
 	 * @since 3.1
 	 */
 	protected void handleNavigation(String partId, Object targetElement, String kind, boolean contributeToContext) {
@@ -118,17 +132,22 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 
 	/**
 	 * Intended to be called back by subclasses.
-	 * 
+	 *
 	 * @since 3.1
 	 */
 	protected void handleElementEdit(String partId, Object selectedElement, boolean contributeToContext) {
+		handleElementEdit(partId, selectedElement, contributeToContext, false);
+	}
+
+	private void handleElementEdit(String partId, Object selectedElement, boolean contributeToContext, boolean isUpdate) {
 		if (selectedElement == null) {
 			return;
 		}
 		AbstractContextStructureBridge bridge = ContextCore.getStructureBridge(selectedElement);
 		String handleIdentifier = bridge.getHandleIdentifier(selectedElement);
+		String delta = isUpdate ? "updated" : "null"; //$NON-NLS-1$ //$NON-NLS-2$
 		InteractionEvent editEvent = new InteractionEvent(InteractionEvent.Kind.EDIT, bridge.getContentType(),
-				handleIdentifier, partId);
+				handleIdentifier, partId, "null", delta, 1f); //$NON-NLS-1$
 		if (handleIdentifier != null && contributeToContext) {
 			ContextCore.getContextManager().processInteractionEvent(editEvent);
 		}
@@ -137,7 +156,7 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 
 	/**
 	 * Intended to be called back by subclasses. *
-	 * 
+	 *
 	 * @since 3.1
 	 */
 	protected InteractionEvent handleElementSelection(String partId, Object selectedElement, boolean contributeToContext) {
@@ -158,6 +177,39 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 		}
 		MonitorUiPlugin.getDefault().notifyInteractionObserved(selectionEvent);
 		return selectionEvent;
+	}
+
+	private synchronized boolean isElementUpdated(Object editElement) {
+		IPath iPath = null;
+		if (editElement instanceof IJavaElement) {
+			IJavaElement iJElement = (IJavaElement) editElement;
+			iPath = iJElement.getPath();
+		} else if (editElement instanceof IFile) {
+			IFile iFile = (IFile) editElement;
+			iPath = iFile.getFullPath();
+		}
+
+		if (iPath == null) {
+			return false;
+		}
+
+		boolean isUpdated = false;
+		try {
+			ITextFileBufferManager manager = FileBuffers.getTextFileBufferManager();
+			manager.connect(iPath, LocationKind.IFILE, null);
+			ITextFileBuffer buffer = manager.getTextFileBuffer(iPath, LocationKind.IFILE);
+			IDocument document = buffer.getDocument();
+			int hashcode = document.get().hashCode();
+			manager.disconnect(iPath, LocationKind.IFILE, null);
+			if (lastEditElement != null && lastEditElement.equals(editElement) && lastEditorHashcode != hashcode) {
+				isUpdated = true;
+			}
+			lastEditElement = editElement;
+			lastEditorHashcode = hashcode;
+		} catch (CoreException e) {
+			//ignore
+		}
+		return isUpdated;
 	}
 
 	public Kind getEventKind() {
