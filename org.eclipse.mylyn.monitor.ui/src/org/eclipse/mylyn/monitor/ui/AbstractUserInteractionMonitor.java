@@ -101,8 +101,8 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 	 * Intended to be called back by subclasses.
 	 */
 	protected void handleElementEdit(IWorkbenchPart part, Object selectedElement, boolean contributeToContext) {
-		boolean isUpdated = isElementUpdated(selectedElement);
-		handleElementEdit(part.getSite().getId(), selectedElement, contributeToContext, isUpdated);
+		boolean isModified = isElementModified(selectedElement);
+		handleElementEdit(part.getSite().getId(), selectedElement, contributeToContext, isModified);
 	}
 
 	/**
@@ -139,13 +139,14 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 		handleElementEdit(partId, selectedElement, contributeToContext, false);
 	}
 
-	private void handleElementEdit(String partId, Object selectedElement, boolean contributeToContext, boolean isUpdate) {
+	private void handleElementEdit(String partId, Object selectedElement, boolean contributeToContext,
+			boolean isModified) {
 		if (selectedElement == null) {
 			return;
 		}
 		AbstractContextStructureBridge bridge = ContextCore.getStructureBridge(selectedElement);
 		String handleIdentifier = bridge.getHandleIdentifier(selectedElement);
-		String delta = isUpdate ? "updated" : "null"; //$NON-NLS-1$ //$NON-NLS-2$
+		String delta = isModified ? "modified" : "referred"; //$NON-NLS-1$//$NON-NLS-2$
 		InteractionEvent editEvent = new InteractionEvent(InteractionEvent.Kind.EDIT, bridge.getContentType(),
 				handleIdentifier, partId, "null", delta, 1f); //$NON-NLS-1$
 		if (handleIdentifier != null && contributeToContext) {
@@ -179,7 +180,7 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 		return selectionEvent;
 	}
 
-	private synchronized boolean isElementUpdated(Object editElement) {
+	private synchronized boolean isElementModified(Object editElement) {
 		IPath iPath = null;
 		if (editElement instanceof IJavaElement) {
 			IJavaElement iJElement = (IJavaElement) editElement;
@@ -193,7 +194,7 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 			return false;
 		}
 
-		boolean isUpdated = false;
+		boolean isModified = false;
 		try {
 			ITextFileBufferManager manager = FileBuffers.getTextFileBufferManager();
 			manager.connect(iPath, LocationKind.IFILE, null);
@@ -202,14 +203,14 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 			int hashcode = document.get().hashCode();
 			manager.disconnect(iPath, LocationKind.IFILE, null);
 			if (lastEditElement != null && lastEditElement.equals(editElement) && lastEditorHashcode != hashcode) {
-				isUpdated = true;
+				isModified = true;
 			}
 			lastEditElement = editElement;
 			lastEditorHashcode = hashcode;
 		} catch (CoreException e) {
 			//ignore
 		}
-		return isUpdated;
+		return isModified;
 	}
 
 	public Kind getEventKind() {
