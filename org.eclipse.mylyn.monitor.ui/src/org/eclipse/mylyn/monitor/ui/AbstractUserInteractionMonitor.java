@@ -45,8 +45,6 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 
 	protected Object lastSelectedElement = null;
 
-	private Object lastEditElement = null;
-
 	private static int lastEditorHashcode;
 
 	/**
@@ -164,6 +162,11 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 		if (selectedElement == null || selectedElement.equals(lastSelectedElement)) {
 			return null;
 		}
+		IDocument document = getDocument(selectedElement);
+		if (document != null) {
+			lastSelectedElement = selectedElement;
+			lastEditorHashcode = document.get().hashCode();
+		}
 		AbstractContextStructureBridge bridge = ContextCore.getStructureBridge(selectedElement);
 		String handleIdentifier = bridge.getHandleIdentifier(selectedElement);
 		InteractionEvent selectionEvent;
@@ -180,37 +183,51 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 		return selectionEvent;
 	}
 
-	private synchronized boolean isElementModified(Object editElement) {
+	private boolean isElementModified(Object editElement) {
+		boolean isModified = false;
+		IDocument document = getDocument(editElement);
+		if (document == null) {
+			return false;
+		}
+		int hashcode = document.get().hashCode();
+		if (lastSelectedElement != null && lastSelectedElement.equals(editElement) && lastEditorHashcode != hashcode) {
+			isModified = true;
+		}
+		lastSelectedElement = editElement;
+		lastEditorHashcode = hashcode;
+		return isModified;
+	}
+
+	/**
+	 * Returns the hashcode of the selectedElement. Returns -1 if any error happens.
+	 *
+	 * @param selectedElement
+	 * @return
+	 */
+	private synchronized IDocument getDocument(Object selectedElement) {
 		IPath iPath = null;
-		if (editElement instanceof IJavaElement) {
-			IJavaElement iJElement = (IJavaElement) editElement;
+		if (selectedElement instanceof IJavaElement) {
+			IJavaElement iJElement = (IJavaElement) selectedElement;
 			iPath = iJElement.getPath();
-		} else if (editElement instanceof IFile) {
-			IFile iFile = (IFile) editElement;
+		} else if (selectedElement instanceof IFile) {
+			IFile iFile = (IFile) selectedElement;
 			iPath = iFile.getFullPath();
 		}
 
 		if (iPath == null) {
-			return false;
+			return null;//error
 		}
-
-		boolean isModified = false;
 		try {
 			ITextFileBufferManager manager = FileBuffers.getTextFileBufferManager();
 			manager.connect(iPath, LocationKind.IFILE, null);
 			ITextFileBuffer buffer = manager.getTextFileBuffer(iPath, LocationKind.IFILE);
 			IDocument document = buffer.getDocument();
-			int hashcode = document.get().hashCode();
 			manager.disconnect(iPath, LocationKind.IFILE, null);
-			if (lastEditElement != null && lastEditElement.equals(editElement) && lastEditorHashcode != hashcode) {
-				isModified = true;
-			}
-			lastEditElement = editElement;
-			lastEditorHashcode = hashcode;
+			return document;
 		} catch (CoreException e) {
-			//ignore
+			return null;//error
 		}
-		return isModified;
+
 	}
 
 	public Kind getEventKind() {
