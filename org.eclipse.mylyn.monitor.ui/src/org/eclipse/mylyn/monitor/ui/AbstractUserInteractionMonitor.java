@@ -99,7 +99,10 @@ public abstract class AbstractUserInteractionMonitor implements ISelectionListen
 	 * Intended to be called back by subclasses.
 	 */
 	protected void handleElementEdit(IWorkbenchPart part, Object selectedElement, boolean contributeToContext) {
+		long start = System.nanoTime();
 		boolean isModified = isElementModified(selectedElement);
+		long end = System.nanoTime();
+		System.out.println(end - start + "[ns]");
 		handleElementEdit(part.getSite().getId(), selectedElement, contributeToContext, isModified);
 	}
 
